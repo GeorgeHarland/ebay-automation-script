@@ -60,9 +60,9 @@ async function main() {
 
   for (const n of listings) {
     console.log(n.title);
-    console.log('price: ' + n.price);
+    console.log('n.price: ' + n.price);
 
-    if(price < 2.00) {
+    if(n.price < 2.00) {
       console.log('Price already under £2, skipping. ')
       continue
     }

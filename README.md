@@ -1,6 +1,6 @@
 # eBay Automation Script
 
-Fetches all active fixed-price listings and reduces each price by 2%.
+Fetches all active fixed-price listings and reduces each price by 4% (2% if over £100). Min £2
 
 ## Setup
 

@@ -1,9 +1,13 @@
 import { XMLParser } from 'fast-xml-parser';
 import 'dotenv/config';
 
+const NEW_PRICE_PERCENTAGE = 0.96
+const EXPENSIVE_ITEM_NEW_PRICE_PERCENTAGE = 0.98
+const EXPENSIVE_ITEM_THRESHOLD = 100
+
 const TOKEN = process.env.EBAY_USER_TOKEN;
 const HEADERS = {
-  'X-EBAY-API-SITEID': '3',
+  'X-EBAY-API-SITEID': '3', // 0 = US, 3 = UK
   'X-EBAY-API-COMPATIBILITY-LEVEL': '967',
   'X-EBAY-API-IAF-TOKEN': TOKEN,
   'Content-Type': 'text/xml'
@@ -27,6 +31,11 @@ async function getListings() {
       <DetailLevel>ReturnAll</DetailLevel>
     </GetMyeBaySellingRequest>`);
 
+  const ack = data?.GetMyeBaySellingResponse?.Ack;
+  const errors = data?.GetMyeBaySellingResponse?.Errors;
+  console.log('Ack:', ack);
+  if (errors) console.log('Errors:', JSON.stringify(errors, null, 2));
+
   const items = data?.GetMyeBaySellingResponse?.ActiveList?.ItemArray?.Item || [];
   
   return (Array.isArray(items) ? items : [items])
@@ -40,7 +49,7 @@ async function reducePrice(itemId, newPrice) {
     <ReviseFixedPriceItemRequest xmlns="urn:ebay:apis:eBLBaseComponents">
       <Item><ItemID>${itemId}</ItemID><StartPrice>${newPrice}</StartPrice></Item>
     </ReviseFixedPriceItemRequest>`);
-  return `new price set to ${newPrice}\n`;
+  return `new price set to ${newPrice}\n--------------\n\n`;
 }
 
 async function main() {
@@ -53,11 +62,20 @@ async function main() {
     console.log(n.title);
     console.log('price: ' + n.price);
 
-    const newPrice = Math.max(0.99, n.price * 0.98).toFixed(2);
+    if(price < 2.00) {
+      console.log('Price already under £2, skipping. ')
+      continue
+    }
 
-    await new Promise(r => setTimeout(r, 1000));
-    
-    console.log(await reducePrice(n.itemId, newPrice));
+    const pricePercentage = (n.price > EXPENSIVE_ITEM_THRESHOLD) ? EXPENSIVE_ITEM_NEW_PRICE_PERCENTAGE : NEW_PRICE_PERCENTAGE
+
+    const newPrice = (n.price * pricePercentage).toFixed(2);
+
+    try {
+      console.log(await reducePrice(n.itemId, newPrice));
+    } catch (e) {
+      console.error(`Failed on ${n.itemId}: ${e.message}`);
+    }
   }
 
   console.log('\nDone!');

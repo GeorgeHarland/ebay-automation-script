@@ -1,9 +1,12 @@
 import { XMLParser } from 'fast-xml-parser';
 import 'dotenv/config';
+import { writeFileSync } from 'fs';
+
 
 const NEW_PRICE_PERCENTAGE = 0.96
 const EXPENSIVE_ITEM_NEW_PRICE_PERCENTAGE = 0.98
 const EXPENSIVE_ITEM_THRESHOLD = 100
+
 
 const TOKEN = process.env.EBAY_USER_TOKEN;
 const HEADERS = {
@@ -12,6 +15,7 @@ const HEADERS = {
   'X-EBAY-API-IAF-TOKEN': TOKEN,
   'Content-Type': 'text/xml'
 };
+
 
 async function ebayCall(callName, body) {
   const res = await fetch('https://api.ebay.com/ws/api.dll', {
@@ -24,10 +28,16 @@ async function ebayCall(callName, body) {
   
   return new XMLParser().parse(text);
 }
+
+
 async function getListings() {
   const data = await ebayCall('GetMyeBaySelling', `<?xml version="1.0" encoding="utf-8"?>
     <GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
-      <ActiveList><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage></Pagination></ActiveList>
+      <ActiveList>
+        <Include>true</Include>
+        <IncludeWatchCount>true</IncludeWatchCount>
+        <Pagination><EntriesPerPage>200</EntriesPerPage></Pagination>
+      </ActiveList>
       <DetailLevel>ReturnAll</DetailLevel>
     </GetMyeBaySellingRequest>`);
 
@@ -40,8 +50,32 @@ async function getListings() {
   
   return (Array.isArray(items) ? items : [items])
     .filter(i => i.ListingType === 'FixedPriceItem')
-    .map(i => ({ itemId: i.ItemID, title: i.Title, price: parseFloat(i.BuyItNowPrice) }));
+    .map(i => ({
+      itemId: i.ItemID,
+      title: i.Title,
+      price: parseFloat(i.BuyItNowPrice),
+      quantity: i.QuantityAvailable,
+      views: i.HitCount,
+      watchers: i.WatchCount,
+      condition: i.ConditionDisplayName,
+      daysListed: i.ListingDetails?.StartTime
+        ? Math.floor((Date.now() - new Date(i.ListingDetails.StartTime)) / 86400000)
+        : null,
+      endDate: i.ListingDetails?.EndTime,
+      url: i.ListingDetails?.ViewItemURL,
+    }))
 }
+
+
+const saveListingsToCsv = (listings) => {
+  const header = 'itemId,title,price,quantity,views,watchers,condition,daysListed,endDate,url';
+  const rows = listings.map(n =>
+    `${n.itemId},"${n.title.replace(/"/g, '""')}",${n.price},${n.quantity},${n.views},${n.watchers},"${n.condition}",${n.daysListed},${n.endDate},${n.url}`
+  );
+  writeFileSync('output/listings.csv', [header, ...rows].join('\n'));
+  console.log(`Saved ${listings.length} listings to listings.csv`);
+};
+
 
 async function reducePrice(itemId, newPrice) {
   console.log('attempting')
@@ -52,18 +86,23 @@ async function reducePrice(itemId, newPrice) {
   return `new price set to ${newPrice}\n--------------\n\n`;
 }
 
+
 async function main() {
   console.log('Fetching listings...');
   const listings = await getListings();
 
   console.log(`Found ${listings.length} total listings\n`);
 
+  // currently saving the old price
+  saveListingsToCsv(listings)
+  console.log('listing saved to csv.')
+
   for (const n of listings) {
     console.log(n.title);
     console.log('n.price: ' + n.price);
 
     if(n.price < 2.00) {
-      console.log('Price already under £2, skipping. ')
+      console.log('Price already under £2, skipping.\n--------------\n\n')
       continue
     }
 
@@ -73,6 +112,7 @@ async function main() {
 
     try {
       console.log(await reducePrice(n.itemId, newPrice));
+      console.log('skip debug')
     } catch (e) {
       console.error(`Failed on ${n.itemId}: ${e.message}`);
     }
@@ -80,5 +120,6 @@ async function main() {
 
   console.log('\nDone!');
 }
+
 
 main().catch(console.error);
